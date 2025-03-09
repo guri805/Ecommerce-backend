@@ -6,6 +6,7 @@ const VerificationEmail = require('../utils/verifyEmailTemplate');
 const sendEmailFun = require('../config/sendEmail');
 
 const registerUserController = async (req, res) => {
+    console.log("Received signup request:", req.body); 
     try {
         const { name, email, password } = req.body;
 
@@ -28,42 +29,18 @@ const registerUserController = async (req, res) => {
         }
 
         const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const salt = await bcryptjs.genSalt(10);
-        const hashPassword = await bcryptjs.hash(password, salt);
-
-        const user = new UserModel({
-            email,
-            password: hashPassword,
-            name,
-            otp: verifyCode,
-            otp_expires: new Date(Date.now() + 600000) // 10 minutes from now
-        });
-
-        await user.save();
 
         // Send verification email
         await sendEmailFun({
             to: email,
             subject: "Verify Your Email - Ecommerce",
-            text: "",
             html: VerificationEmail(name, verifyCode)
         });
 
-        if (!process.env.JSON_WEB_TOKEN_SECRET_KEY) {
-            throw new Error("Missing JWT secret key in environment variables.");
-        }
-
-        const token = jwt.sign(
-            { id: user._id }, // Only store user ID
-            process.env.JSON_WEB_TOKEN_SECRET_KEY,
-            { expiresIn: "7d" } // Token expires in 7 days
-        );
-
         return res.status(200).json({
             success: true,
-            error: false,
             message: "User registered successfully! Please verify your email.",
-            token
+            otp: verifyCode
         });
 
     } catch (error) {
@@ -75,29 +52,34 @@ const registerUserController = async (req, res) => {
     }
 };
 
-const verifyEmailController = async (req, res) => {
+const verifyOtpController = async (req, res) => {
     try {
-        const { email, otp } = req.body
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json({
+                message: "Email and OTP are required.",
+                error: true,
+                success: false
+            });
+        }
+
         const user = await UserModel.findOne({ email });
+
         if (!user) {
             return res.status(400).json({
                 message: "User not found",
                 error: true,
                 success: false
-            })
+            });
         }
 
         const isValidOtp = user.otp === otp;
-        const isNotExpired = user.otp_expires > Date.now()
+        const isNotExpired = user.otp_expires > Date.now();
 
         if (isValidOtp && isNotExpired) {
-            user.verify_email = true,
-                user.otp = null,
-                user.otp_expires = null
-            await user.save();
             return res.status(200).json({
-                message: "Emial verified successfully",
-                error: false,
+                message: "OTP verified. Proceed to save user data.",
                 success: true
             });
         } else if (!isValidOtp) {
@@ -115,12 +97,46 @@ const verifyEmailController = async (req, res) => {
         }
     } catch (error) {
         return res.status(500).json({
-            message: error.message || "Internal server error",
+            message: "Internal server error",
             error: true,
             success: false
         });
     }
-}
+};
+
+const saveUserController = async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+
+        if (!name || !email || !password) {
+            return res.status(400).json({
+                message: "Invalid user data",
+                error: true,
+                success: false
+            });
+        }
+
+        const newUser = new UserModel({
+            name,
+            email,
+            password
+        });
+        await newUser.save();
+
+        return res.status(201).json({
+            message: "User registered successfully!",
+            success: true
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            message: "Internal server error",
+            error: true,
+            success: false
+        });
+    }
+};
+
 
 const loginUserController = async (req, res) => {
     const { email, password } = req.body;
@@ -155,4 +171,4 @@ const loginUserController = async (req, res) => {
     })
 }
 
-module.exports = { registerUserController, verifyEmailController, loginUserController };
+module.exports = { registerUserController, verifyOtpController, loginUserController, saveUserController };
