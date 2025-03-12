@@ -40,17 +40,17 @@ const registerUserController = async (req, res) => {
 
         // Generate OTP & Expiry
         const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes validity
+        // const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes validity
         const salt = await bcryptjs.genSalt(10);
         const hashedPassword = await bcryptjs.hash(password, salt);
 
-        const newUser = new UserModel({
-            name,
-            email,
-            password: hashedPassword,
-        });
+        // const newUser = new UserModel({
+        //     name,
+        //     email,
+        //     password: hashedPassword,
+        // });
 
-        await newUser.save();
+        // await newUser.save();
 
         // Send OTP Email
         await sendEmailFun({
@@ -63,8 +63,10 @@ const registerUserController = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "User registered successfully! Please verify your email.",
-            otp: verifyCode, 
-            otp_expires: otpExpiry
+            name,
+            email,
+            password: hashedPassword,
+            otp: verifyCode,
         });
 
     } catch (error) {
@@ -127,15 +129,12 @@ const saveUserController = async (req, res) => {
             });
         }
 
-        // Hash password before saving
-        const salt = await bcryptjs.genSalt(10);
-        const hashedPassword = await bcryptjs.hash(password, salt);
 
         const newUser = new UserModel({
-            name,
-            email,
-            password: hashedPassword,
-            verify_email:true
+            name: name,
+            email: email,
+            password: password,
+            verify_email: true
         });
 
         await newUser.save();
