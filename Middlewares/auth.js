@@ -1,34 +1,45 @@
-const jwt = require('jsonwebtoken')
+const jwt = require("jsonwebtoken");
 
 const auth = async (req, res, next) => {
     try {
-        const token = req.cookies.accessToken || req.headers?.authorization?.split("")[1];
+        // Extract token from cookies OR Authorization header
+        const token = req.cookies?.accessToken || req.headers?.authorization?.split(" ")[1];
+
+        console.log("Extracted Token:", token); //  Debugging log
 
         if (!token) {
             return res.status(401).json({
-                message: "provide token"
-            })
-        }
-
-        const decoded = await jwt.verify(token, process.env.JWT_SECRET)
-        if (!decoded) {
-            return res.status(401).json({
-                message: "unauthorized access",
+                message: "Access token missing. Please log in.",
                 error: true,
                 success: false
-            })
+            });
         }
-        req.userId = decoded.id
-        next()
 
+        // Verify the token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        console.log("Decoded Token Data:", decoded); //  Debugging log
+
+        if (!decoded) {
+            return res.status(401).json({
+                message: "Unauthorized access. Invalid token.",
+                error: true,
+                success: false
+            });
+        }
+
+        // Attach user ID to request
+        req.userId = decoded.id;
+        next();
 
     } catch (error) {
-        return res.status(500).json({
-            message: "You have not login",
+        console.error("Auth Middleware Error:", error);
+        return res.status(401).json({
+            message: "Authentication failed. Please log in again.",
             error: true,
             success: false
-        })
+        });
     }
-}
+};
 
-module.exports = auth
+module.exports = auth;

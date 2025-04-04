@@ -14,86 +14,96 @@ cloudinary.config({
 });
 
 
-// REGISTER USER & SEND OTP
+// REGISTER USER & SAVE TO DATABASE
 const registerUserController = async (req, res) => {
     console.log("Received signup request:", req.body);
     try {
-        const { name, email, password } = req.body;
+        const { name, mobile, email, password } = req.body;
 
-        if (!name || !email || !password) {
+        // Check if all fields are provided
+        if (!name || !mobile || !email || !password) {
             return res.status(400).json({
-                message: "Please provide name, email, and password.",
+                success: false,
                 error: true,
-                success: false
+                message: "Please provide name, email, mobile, and password."
             });
         }
 
+        // Check if user already exists
         const checkUserExist = await UserModel.findOne({ email });
-
         if (checkUserExist) {
             return res.status(400).json({
-                message: "Email already registered, please log in.",
+                success: false,
                 error: true,
-                success: false
+                message: "Email already registered, please log in."
             });
         }
 
-        // Generate OTP & Expiry
-        const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
-        // const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes validity
+        // Hash the password before saving
         const salt = await bcryptjs.genSalt(10);
         const hashedPassword = await bcryptjs.hash(password, salt);
 
-        // const newUser = new UserModel({
-        //     name,
-        //     email,
-        //     password: hashedPassword,
-        // });
-
-        // await newUser.save();
-
-        // Send OTP Email
-        await sendEmailFun({
-            to: email,
-            subject: "Verify Your Email - Ecommerce",
-            html: VerificationEmail(name, verifyCode)
-        });
-
-        // Return OTP & Expiry for frontend session storage
-        return res.status(200).json({
-            success: true,
-            message: "User registered successfully! Please verify your email.",
+        // Save the user to database
+        const newUser = new UserModel({
             name,
             email,
             password: hashedPassword,
-            otp: verifyCode,
+            mobile
+        });
+
+        await newUser.save();
+
+        // Respond with success message
+        return res.status(201).json({
+            success: true,
+            error: false,
+            message: "User registered successfully.",
+            // for test purpose remove before final upload
+            // user: {
+            //     name: newUser.name,
+            //     email: newUser.email,
+            //     mobile: newUser.mobile,
+            //     password: newUser.password
+            // }
         });
 
     } catch (error) {
         console.error("Signup error:", error);
         return res.status(500).json({
-            message: "Internal server error",
+            success: false,
             error: true,
-            success: false
+            message: "Internal server error"
         });
     }
 };
 
 // VERIFY OTP
+// OTP Verification Controller
 const verifyOtpController = async (req, res) => {
     try {
-        const { email, otp, otp_expires } = req.body;
+        const { otp, email } = req.body;
 
-        if (!email || !otp || !otp_expires) {
+        if (!otp || !email) {
             return res.status(400).json({
-                message: "Email, OTP, and expiry time are required.",
+                message: "OTP and email are required.",
+                error: true,
+                success: false
+            });
+        }
+
+        // Fetch user from the database
+        const user = await UserModel.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found.",
                 error: true,
                 success: false
             });
         }
 
         // OTP Expiry Check
-        if (Date.now() > otp_expires) {
+        if (Date.now() > new Date(user.otp_expires)) {
             return res.status(400).json({
                 message: "OTP expired. Please request a new one.",
                 error: true,
@@ -101,9 +111,29 @@ const verifyOtpController = async (req, res) => {
             });
         }
 
+        // Check if OTP matches
+        if (user.otp !== otp) {
+            return res.status(400).json({
+                message: "Invalid OTP. Please try again.",
+                error: true,
+                success: false
+            });
+        }
+
+        // OTP is valid, mark user as verified
+        user.verify_email = true;
+        user.otp = null; // Clear OTP after successful verification
+        user.otp_expires = null;
+        await user.save();
+
         return res.status(200).json({
             message: "OTP verified. Proceed to save user data.",
-            success: true
+            success: true,
+            user: {
+                name: user.name,
+                email: user.email,
+                role: user.role,
+            }
         });
 
     } catch (error) {
@@ -116,88 +146,98 @@ const verifyOtpController = async (req, res) => {
     }
 };
 
-// SAVE USER AFTER OTP VERIFICATION
-const saveUserController = async (req, res) => {
+// User Login Controller
+const loginUserController = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { email, password } = req.body;
 
-        if (!name || !email || !password) {
+        if (!email || !password) {
             return res.status(400).json({
-                message: "Invalid user data",
+                message: "Email and password are required.",
                 error: true,
                 success: false
             });
         }
 
+        // Find user in database
+        const user = await UserModel.findOne({ email });
 
-        const newUser = new UserModel({
-            name: name,
-            email: email,
-            password: password,
-            verify_email: true
+        if (!user) {
+            return res.status(401).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        // Check password validity
+        const checkPassword = await bcryptjs.compare(password, user.password);
+        if (!checkPassword) {
+            return res.status(400).json({
+                message: "Invalid password",
+                error: true,
+                success: false
+            });
+        }
+
+        // If email is not verified, send OTP
+        if (!user.verify_email) {
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+            user.otp = otp;
+            user.otp_expires = otpExpires;
+            await user.save();
+
+            // Send OTP via email
+            await sendEmailFun({
+                to: email,
+                subject: "Verify Your Email - Ecommerce",
+                html: VerificationEmail(user.name, otp)
+            });
+
+            return res.status(201).json({
+                message: "Email not verified. OTP sent.",
+                email,
+                otpExpiry: otpExpires,
+                verify_email: false,
+                error: false,
+                success: true
+            });
+        }
+
+        // If email is verified, login successfully
+        return res.status(200).json({
+            success: true,
+            message: "Login successful",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+            }
         });
-
-        await newUser.save();
-
-        return res.status(201).json({
-            message: "User registered successfully!",
-            success: true
-        });
-
     } catch (error) {
-        console.error("Save user error:", error);
+        console.error("Login Error:", error);
         return res.status(500).json({
-            message: "Internal server error",
+            message: "Internal Server Error",
             error: true,
             success: false
         });
     }
 };
-
-// login 
-const loginUserController = async (req, res) => {
-    const { email, password } = req.body;
-
-    const user = await UserModel.findOne({ email });
-
-    if (!user) {
-        return res.status(400).json({
-            message: "User not found",
-            error: true,
-            success: false
-        })
-    }
-
-    const checkPassword = await bcryptjs.compare(password, user.password)
-    // const checkPassword = user.password === password
-    if (!checkPassword) {
-        return res.status(400).json({
-            message: "Invalid password",
-            error: true,
-            success: false
-        })
-    }
-    return res.status(200).json({
-        success: true,
-        message: "login successful",
-        user: {
-            name: user.name,
-            email: user.email,
-            role: user.role,
-        }
-    })
-}
-
+// 67d3f46b172096678731752a
 // image url
+var imagesArr = [];
 const userAvatarController = async (req, res) => {
     try {
-        let imageArr = [];
+        imagesArr = [];
 
         // Get userId from the authenticated request
-        const userId = req.userId || "67cff32f4ddcf1b7821a1161"; // Replace with actual logic
-        const images = req.files;
+        const userId = req.userId || "67d3f46b172096678731752a"; // Replace with actual logic
+        const image = req.files;
 
-        if (!images || images.length === 0) {
+        if (!image || image.length === 0) {
             return res.status(400).json({
                 message: "No image provided",
                 error: true,
@@ -233,7 +273,6 @@ const userAvatarController = async (req, res) => {
             )
         }
 
-
         // Cloudinary upload options
         const options = {
             use_filename: true,
@@ -241,15 +280,29 @@ const userAvatarController = async (req, res) => {
             overwrite: false,
         };
 
-        for (let i = 0; i < images.length; i++) {
+        for (let i = 0; i < image?.length; i++) {
 
-            const result = await cloudinary.uploader.upload(images[i].path, options);
-            imageArr.push(result.secure_url);
-            fs.unlinkSync(images[i].path); // Remove local file after upload
+            const img = await cloudinary.uploader.upload(
+                image[i].path,
+                options,
+                function (error, result) {
+                    if (error) {
+                        console.error("Error uploading image:", error);
+                        return res.status(500).json({
+                            message: "Error uploading image",
+                            error: true,
+                            success: false
+                        });
+                    }
+                    imagesArr.push(result.secure_url);
+                    fs.unlinkSync(`uploads/${image[i].filename}`); // Remove local file after upload
+
+                }
+            );
         }
 
         // Update user avatar in DB
-        user.avatar = imageArr[0]; // Assuming only one image
+        user.avatar = imagesArr[0]; // Assuming only one image
         await user.save();
 
         return res.status(200).json({
@@ -290,30 +343,204 @@ const removeIamgeFromCloudinary = async (req, res) => {
 }
 
 // update user
-const updateUserDetails = async (req, res) => {
+const updateUserDetailsController = async (req, res) => {
     try {
-        const { name, mobile, email, address, password } = req.body;
-        const userDetails = await UserModel.findOneAndUpdate({ email }, { name, password, mobile, address, password }, { new: true });
-        if (!userDetails) {
-            return res.status(200).json({
-                success: false,
-                message: "user not found ",
+        const { id } = req.params;
+        const UserDataToUpdate = req.body;
+
+        if (!id || !UserDataToUpdate) {
+            return res.status(400).json({
+                message: "Missing required parameters",
                 error: true,
+                success: false
             });
         }
-        res.status(200).json({
+
+        const updatedUser = await UserModel.findByIdAndUpdate(id, UserDataToUpdate, { new: true });
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        res.json({
+            message: "User updated successfully",
+            error: false,
             success: true,
-            message: "user updated successfully",
+            user: updatedUser
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Internal server error",
             error: true,
-            userDetails
-        })
+            success: false,
+            details: error.message
+        });
+    }
+};
+
+// forgot password
+const forgotPasswordSendOtpController = async (req, res) => {
+    try {
+        console.log("Received forgot password request:", req.body);
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({
+                message: "Email is required",
+                error: true,
+                success: false
+            });
+        }
+
+        // Find the user
+        const user = await UserModel.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        // Generate OTP and expiration time
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
+
+        // Update user with OTP details
+        user.otp = otp;
+        user.otp_expires = otpExpires;
+        await user.save();
+
+        // Send OTP via email
+        await sendEmailFun({
+            to: email,
+            subject: "Verify Your Email - Ecommerce",
+            html: VerificationEmail(user.name, otp)
+        });
+
+        res.json({
+            message: "OTP sent successfully",
+            otpExpiry: otpExpires,
+            email,
+            error: false,
+            success: true
+        });
 
     } catch (error) {
         return res.status(500).json({
             message: "Internal server error",
             error: true,
+            success: false,
+            details: error.message
+        });
+    }
+};
+
+// reset passoword 
+const resetPasswordController = async (req, res) => {
+    try {
+        console.log("Received reset password request:", req.body);
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json({
+                message: "Email, OTP, and new password are required",
+                error: true,
+                success: false
+            });
+        }
+
+        const user = await UserModel.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        // Verify OTP and check expiration
+        if (user.otp !== otp || user.otp_expires < new Date()) {
+            return res.status(400).json({
+                message: "Invalid or expired OTP",
+                error: true,
+                success: false
+            });
+        }
+
+        user.otp = null;
+        user.otp_expires = null;
+        await user.save();
+
+        res.json({
+            message: "otp verified successfully",
+            error: false,
+            success: true
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Internal server error",
+            error: true,
+            success: false,
+            details: error.message
+        });
+    }
+};
+
+// set new password
+const setNewPasswordController = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        console.log("Received new password request:", req.body);
+
+        if (!email || !password) {
+            return res.status(400).json({
+                message: "Email and new password are required",
+                error: true,
+                success: false
+            });
+        }
+
+        // Hash the new password before saving
+        const salt = await bcryptjs.genSalt(10);
+        const hashedPassword = await bcryptjs.hash(password, salt);
+
+        // Find user and update password
+        const updatedUser = await UserModel.findOneAndUpdate(
+            { email },
+            { password: hashedPassword },
+            { new: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        return res.status(200).json({
+            message: "Password updated successfully",
+            error: false,
+            success: true
+        });
+
+    } catch (error) {
+        console.error("Error updating password:", error);
+        return res.status(500).json({
+            message: "Internal Server Error",
+            error: true,
             success: false
         });
     }
-}
-module.exports = { registerUserController, verifyOtpController, loginUserController, saveUserController, userAvatarController, removeIamgeFromCloudinary, updateUserDetails };
+};
+
+
+module.exports = { registerUserController, verifyOtpController, loginUserController, userAvatarController, removeIamgeFromCloudinary, updateUserDetailsController, forgotPasswordSendOtpController, resetPasswordController, setNewPasswordController };

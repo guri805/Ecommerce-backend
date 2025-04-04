@@ -61,3 +61,7 @@ EMAIL_PASS=<Your Email Password>
 CLOUDINARY_CONFIG_CLOUD_NAME=<Your Cloudinary Cloud Name>
 CLOUDINARY_CONFIG_API_KEY=<Your Cloudinary API Key>
 CLOUDINARY_CONFIG_API_SECRET=<Your Cloudinary API Secret>
+
+
+<!-- task -->
+check middleware cookies parser 
