@@ -1,24 +1,22 @@
 const mongoose = require('mongoose');
 
 const categorySchema = new mongoose.Schema({
-    name: {
+    categoryName: {
         type: String,
         required: true,
         trim: true,
     },
-    image: {
-        type: String,
+    categoryImages: {
+        type: [String],
         required: true,
     },
-    parentCateogryName: {
+    parentCategoryName: {
         type: String,
         default: null,
-        required: true,
     },
     parentCategoryId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Category',
-        required: true,
         default: null,
     },
 }, { timestamps: true });

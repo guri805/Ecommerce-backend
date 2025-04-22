@@ -6,6 +6,7 @@ const { v2: cloudinary } = require('cloudinary');
 const fs = require('fs');
 
 
+
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CONFIG_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_CONFIG_API_KEY,
@@ -15,14 +16,14 @@ cloudinary.config({
 
 
 // REGISTER USER & SAVE TO DATABASE
-const registerUserController = async (req, res) => {
-    console.log("Received signup request:", req.body);
+const registerNewUserController = async (req, res) => {
+    // console.log("Received signup request:", req.body);
     try {
         const { name, mobile, email, password } = req.body;
 
         // Check if all fields are provided
         if (!name || !mobile || !email || !password) {
-            return res.status(400).json({
+            return res.status(201).json({
                 success: false,
                 error: true,
                 message: "Please provide name, email, mobile, and password."
@@ -32,7 +33,7 @@ const registerUserController = async (req, res) => {
         // Check if user already exists
         const checkUserExist = await UserModel.findOne({ email });
         if (checkUserExist) {
-            return res.status(400).json({
+            return res.status(201).json({
                 success: false,
                 error: true,
                 message: "Email already registered, please log in."
@@ -54,17 +55,10 @@ const registerUserController = async (req, res) => {
         await newUser.save();
 
         // Respond with success message
-        return res.status(201).json({
+        return res.status(200).json({
             success: true,
             error: false,
             message: "User registered successfully.",
-            // for test purpose remove before final upload
-            // user: {
-            //     name: newUser.name,
-            //     email: newUser.email,
-            //     mobile: newUser.mobile,
-            //     password: newUser.password
-            // }
         });
 
     } catch (error) {
@@ -79,12 +73,12 @@ const registerUserController = async (req, res) => {
 
 // VERIFY OTP
 // OTP Verification Controller
-const verifyOtpController = async (req, res) => {
+const emailVerifyOtpController = async (req, res) => {
     try {
         const { otp, email } = req.body;
 
         if (!otp || !email) {
-            return res.status(400).json({
+            return res.status(201).json({
                 message: "OTP and email are required.",
                 error: true,
                 success: false
@@ -95,7 +89,7 @@ const verifyOtpController = async (req, res) => {
         const user = await UserModel.findOne({ email });
 
         if (!user) {
-            return res.status(404).json({
+            return res.status(201).json({
                 message: "User not found.",
                 error: true,
                 success: false
@@ -104,16 +98,16 @@ const verifyOtpController = async (req, res) => {
 
         // OTP Expiry Check
         if (Date.now() > new Date(user.otp_expires)) {
-            return res.status(400).json({
+            return res.status(201).json({
                 message: "OTP expired. Please request a new one.",
                 error: true,
-                success: false
+                success: true
             });
         }
 
         // Check if OTP matches
         if (user.otp !== otp) {
-            return res.status(400).json({
+            return res.status(201).json({
                 message: "Invalid OTP. Please try again.",
                 error: true,
                 success: false
@@ -127,9 +121,11 @@ const verifyOtpController = async (req, res) => {
         await user.save();
 
         return res.status(200).json({
-            message: "OTP verified. Proceed to save user data.",
+            message: "OTP verified successfully.",
+            error: false,
             success: true,
             user: {
+                id: user._id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
@@ -152,7 +148,7 @@ const loginUserController = async (req, res) => {
         const { email, password } = req.body;
 
         if (!email || !password) {
-            return res.status(400).json({
+            return res.status(201).json({
                 message: "Email and password are required.",
                 error: true,
                 success: false
@@ -163,8 +159,8 @@ const loginUserController = async (req, res) => {
         const user = await UserModel.findOne({ email });
 
         if (!user) {
-            return res.status(401).json({
-                message: "User not found",
+            return res.status(201).json({
+                message: "Email not registred. Please register first.",
                 error: true,
                 success: false
             });
@@ -173,7 +169,7 @@ const loginUserController = async (req, res) => {
         // Check password validity
         const checkPassword = await bcryptjs.compare(password, user.password);
         if (!checkPassword) {
-            return res.status(400).json({
+            return res.status(201).json({
                 message: "Invalid password",
                 error: true,
                 success: false
@@ -198,23 +194,27 @@ const loginUserController = async (req, res) => {
 
             return res.status(201).json({
                 message: "Email not verified. OTP sent.",
-                email,
-                otpExpiry: otpExpires,
-                verify_email: false,
-                error: false,
-                success: true
+                error: true,
+                success: false,
+                user: {
+                    email,
+                    otpExpiry: otpExpires,
+                    verify_email: user.verify_email,
+                },
             });
         }
 
         // If email is verified, login successfully
         return res.status(200).json({
             success: true,
+            error: false,
             message: "Login successful",
             user: {
                 id: user._id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                verify_email: user.verify_email,
             }
         });
     } catch (error) {
@@ -226,6 +226,169 @@ const loginUserController = async (req, res) => {
         });
     }
 };
+
+// reset password api's
+// otp send to email
+const forgotPasswordSendOtpController = async (req, res) => {
+    try {
+        // console.log("Received forgot password request:", req.body);
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(201).json({
+                message: "Email is required",
+                error: true,
+                success: false
+            });
+        }
+
+        // Find the user
+        const user = await UserModel.findOne({ email });
+
+        if (!user) {
+            return res.status(201).json({
+                message: "Enter Registered Email",
+                error: true,
+                success: false
+            });
+        }
+
+        // Generate OTP and expiration time
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
+
+        // Update user with OTP details
+        user.otp = otp;
+        user.otp_expires = otpExpires;
+        await user.save();
+
+        // Send OTP via email
+        await sendEmailFun({
+            to: email,
+            subject: "Verify Your Email - Ecommerce",
+            html: VerificationEmail(user.name, otp)
+        });
+
+        res.json({
+            message: "OTP sent successfully",
+            otpExpiry: otpExpires,
+            email,
+            error: false,
+            success: true
+        });
+
+    } catch (error) {
+        return res.status(500).json({
+            message: "Internal server error",
+            error: true,
+            success: false,
+            details: error.message
+        });
+    }
+};
+
+// Verify OTP and set new password
+const verifyOtpAndSetPasswordController = async (req, res) => {
+    try {
+        // console.log("Received reset password request:", req.body);
+        const { email, otp, password } = req.body;
+
+        if (!email || !otp || !password) {
+            return res.status(201).json({
+                message: "Email, OTP, and new password are required",
+                error: true,
+                success: false
+            });
+        }
+
+        const user = await UserModel.findOne({ email });
+
+        if (!user) {
+            return res.status(201).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        // Verify OTP and check expiration
+        if (user.otp !== otp || user.otp_expires < new Date()) {
+            return res.status(201).json({
+                message: "Invalid or expired OTP",
+                error: true,
+                success: false
+            });
+        }
+
+        // Hash the new password
+        const salt = await bcryptjs.genSalt(10);
+        const hashedPassword = await bcryptjs.hash(password, salt);
+
+        // Clear OTP and update password
+        user.password = hashedPassword;
+        user.otp = null;
+        user.otp_expires = null;
+
+        await user.save();
+
+        return res.status(200).json({
+            message: "Password reset successfully",
+            error: false,
+            success: true
+        });
+
+    } catch (error) {
+        console.error("Error resetting password:", error);
+        return res.status(500).json({
+            message: "Internal server error",
+            error: true,
+            success: false,
+            details: error.message
+        });
+    }
+};
+
+// Get user details
+const getUserDetailsController = async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        if (!userId) {
+            return res.status(400).json({
+                message: "User ID is required",
+                error: true,
+                success: false
+            });
+        }
+
+        const user = await UserModel.findById(userId).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found",
+                error: true,
+                success: false
+            });
+        }
+
+        return res.status(200).json({
+            message: "User details fetched successfully",
+            error: false,
+            success: true,
+            user
+        });
+
+    } catch (error) {
+        console.error("Error fetching user details:", error);
+        return res.status(500).json({
+            message: "Internal server error",
+            error: true,
+            success: false,
+            details: error.message
+        });
+    }
+}
+
 // 67d3f46b172096678731752a
 // image url
 var imagesArr = [];
@@ -382,165 +545,10 @@ const updateUserDetailsController = async (req, res) => {
     }
 };
 
-// forgot password
-const forgotPasswordSendOtpController = async (req, res) => {
-    try {
-        console.log("Received forgot password request:", req.body);
-        const { email } = req.body;
-
-        if (!email) {
-            return res.status(400).json({
-                message: "Email is required",
-                error: true,
-                success: false
-            });
-        }
-
-        // Find the user
-        const user = await UserModel.findOne({ email });
-
-        if (!user) {
-            return res.status(404).json({
-                message: "User not found",
-                error: true,
-                success: false
-            });
-        }
-
-        // Generate OTP and expiration time
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // OTP expires in 10 minutes
-
-        // Update user with OTP details
-        user.otp = otp;
-        user.otp_expires = otpExpires;
-        await user.save();
-
-        // Send OTP via email
-        await sendEmailFun({
-            to: email,
-            subject: "Verify Your Email - Ecommerce",
-            html: VerificationEmail(user.name, otp)
-        });
-
-        res.json({
-            message: "OTP sent successfully",
-            otpExpiry: otpExpires,
-            email,
-            error: false,
-            success: true
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            message: "Internal server error",
-            error: true,
-            success: false,
-            details: error.message
-        });
-    }
-};
-
-// reset passoword 
-const resetPasswordController = async (req, res) => {
-    try {
-        console.log("Received reset password request:", req.body);
-        const { email, otp } = req.body;
-
-        if (!email || !otp) {
-            return res.status(400).json({
-                message: "Email, OTP, and new password are required",
-                error: true,
-                success: false
-            });
-        }
-
-        const user = await UserModel.findOne({ email });
-
-        if (!user) {
-            return res.status(404).json({
-                message: "User not found",
-                error: true,
-                success: false
-            });
-        }
-
-        // Verify OTP and check expiration
-        if (user.otp !== otp || user.otp_expires < new Date()) {
-            return res.status(400).json({
-                message: "Invalid or expired OTP",
-                error: true,
-                success: false
-            });
-        }
-
-        user.otp = null;
-        user.otp_expires = null;
-        await user.save();
-
-        res.json({
-            message: "otp verified successfully",
-            error: false,
-            success: true
-        });
-    } catch (error) {
-        return res.status(500).json({
-            message: "Internal server error",
-            error: true,
-            success: false,
-            details: error.message
-        });
-    }
-};
-
-// set new password
-const setNewPasswordController = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        console.log("Received new password request:", req.body);
-
-        if (!email || !password) {
-            return res.status(400).json({
-                message: "Email and new password are required",
-                error: true,
-                success: false
-            });
-        }
-
-        // Hash the new password before saving
-        const salt = await bcryptjs.genSalt(10);
-        const hashedPassword = await bcryptjs.hash(password, salt);
-
-        // Find user and update password
-        const updatedUser = await UserModel.findOneAndUpdate(
-            { email },
-            { password: hashedPassword },
-            { new: true }
-        );
-
-        if (!updatedUser) {
-            return res.status(404).json({
-                message: "User not found",
-                error: true,
-                success: false
-            });
-        }
-
-        return res.status(200).json({
-            message: "Password updated successfully",
-            error: false,
-            success: true
-        });
-
-    } catch (error) {
-        console.error("Error updating password:", error);
-        return res.status(500).json({
-            message: "Internal Server Error",
-            error: true,
-            success: false
-        });
-    }
-};
+module.exports = { registerNewUserController, emailVerifyOtpController, loginUserController, userAvatarController, removeIamgeFromCloudinary, updateUserDetailsController, forgotPasswordSendOtpController, verifyOtpAndSetPasswordController, getUserDetailsController };
 
 
-module.exports = { registerUserController, verifyOtpController, loginUserController, userAvatarController, removeIamgeFromCloudinary, updateUserDetailsController, forgotPasswordSendOtpController, resetPasswordController, setNewPasswordController };
+
+
+
+

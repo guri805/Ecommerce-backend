@@ -30,10 +30,14 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'address'
     },
-    shopping_cart: {
+    shopping_cart:[{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'cartProduct'
-    },
+        ref: 'CartProduct'
+    }],
+    my_list:[{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'MyList'
+    }],
     order_history: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'order'
