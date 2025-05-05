@@ -3,9 +3,9 @@ const jwt = require("jsonwebtoken");
 const auth = async (req, res, next) => {
     try {
         // Extract token from cookies OR Authorization header
-        const token = req.cookies?.accessToken || req.headers?.authorization?.split(" ")[1];
+        const token = req.cookies["session"];
 
-        console.log("Extracted Token:", token); //  Debugging log
+        console.log("Extracted Token:", req.cookies.session); //  Debugging log
 
         if (!token) {
             return res.status(401).json({

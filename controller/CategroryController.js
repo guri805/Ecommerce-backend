@@ -79,7 +79,7 @@ const createCategory = async (req, res) => {
         await newCategory.save();
 
         imagesArr = [];
-        
+
         return res.status(200).json({
             message: "Category and images uploaded successfully",
             category: newCategory,
@@ -102,6 +102,13 @@ const getAllCategories = async (req, res) => {
     try {
 
         const categories = await CategoryModel.find({});
+        if (!categories || categories.length === 0) {
+            return res.status(404).json({
+                message: "No categories found",
+                error: true,
+                success: false
+            })
+        }
         const categoryMap = {};
 
         categories.forEach(cat => {
@@ -340,7 +347,7 @@ const updateCategory = async (req, res) => {
             category: updatedCategory,
             success: true,
             error: false
-        }, imagesArr=[]);
+        }, imagesArr = []);
 
     } catch (error) {
         console.error("Error deleting category:", error);

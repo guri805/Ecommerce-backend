@@ -9,6 +9,7 @@ const categoryRouter = require('./Router/categoryRouter');
 const productRouter = require('./Router/productRouter');
 const cartRouter = require('./Router/cartProductRouter');
 const myListRouter = require('./Router/myListRouter');
+const auth = require('./Middlewares/auth');
 
 const port = 3001 || process.env.PORT
 
@@ -21,6 +22,7 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(auth);
 app.use('/', AuthRouter);
 app.use('/api/category',categoryRouter);
 app.use('/api/product',productRouter);
